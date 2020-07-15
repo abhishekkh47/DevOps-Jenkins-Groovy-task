@@ -1,0 +1,95 @@
+job("job1") 
+          {  
+            scm
+            {
+              github('abhishekkh47/httpd','master')
+            }
+  
+            triggers 
+            {
+              scm('* * * * *')
+            }
+
+            steps 
+            {
+              dockerBuildAndPublish 
+               {
+                repositoryName('abhishekkhandelwal/httpd')
+                tag("latest")
+                dockerHostURI('tcp://0.0.0.0:1234')
+                registryCredentials('docker-hub')
+                
+               }
+            }
+  
+           }
+
+job("job2") {
+ 
+triggers {
+upstream('job1', 'SUCCESS')
+}
+  
+steps 
+ {
+   shell("""
+ export length1=\$(ls -l /var/lib/jenkins/workspace/job1 | grep html | wc -l)
+ if [ \$length1 -gt 0 ]
+ then
+ export length2=\$(sudo kubectl get deployments | grep pod1 | wc -l)
+ if [ \$length2 -gt 0 ]
+ then
+ sudo kubectl rollout restart deployment/pod1
+ sudo kubectl rollout status deployment/pod1
+ else
+ sudo kubectl create deployment pod1 --image=abhishekkhandelwal/httpd:latest
+ sudo kubectl scale deployment pod1 --replicas=3
+ sudo kubectl expose deployment pod1 --port 80 --type NodePort
+ fi
+fi
+""")
+  }
+}
+
+job("job3") { 
+                triggers {
+                  upstream('job2', 'SUCCESS')
+                }
+                
+                steps 
+                {
+                      shell('''if sudo kubectl get deployments pod1
+                  then
+                  echo "Eligible & promoted to production"
+                  else
+                  echo "Sorry but were are sending to developer"
+                  exit 1
+                  fi''')
+                }
+                
+                publishers 
+                {
+                  extendedEmail 
+                  {
+                    contentType('text/html')
+                    triggers 
+                    {
+                      success
+                      {
+                        attachBuildLog(true)
+                        subject('Success')
+                        content('We promoted to production')
+                        recipientList('abhishekkhandelwal4712@gmail.com')
+                      }
+                      
+                      failure
+                      {
+                        attachBuildLog(true)
+                        subject('Failure')
+                        content('Sorry but we are sending to developer')
+                        recipientList('abhishekkhandelwal4712j@gmail.com')
+                      }
+                    }
+                  }
+                }
+              }
